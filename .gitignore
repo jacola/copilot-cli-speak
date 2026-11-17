@@ -1,0 +1,7 @@
+node_modules/
+settings.json
+.settings-*.tmp
+.DS_Store
+*.wav
+.env
+.env.*

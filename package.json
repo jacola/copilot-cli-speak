@@ -1,0 +1,15 @@
+{
+  "name": "copilot-spoken-summary",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Speech-friendly Copilot CLI summaries using local Ollama Phonon.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.3.0"
+  },
+  "scripts": {
+    "check": "node --check extension.mjs && node --check speech.mjs && node --check settings.mjs && node --check scripts/install.mjs",
+    "test": "node --experimental-vm-modules --test test/*.test.mjs",
+    "install:extension": "node scripts/install.mjs"
+  }
+}
