@@ -10,13 +10,14 @@ const guidance =
     "The summary plays automatically when your turn ends; keep your normal final answer.";
 
 let settings = await readSettings();
+let enabled = false;
 const speech = createSpokenSummary({
-    getSettings: () => settings,
+    getSettings: () => ({ ...settings, enabled }),
     reportError: (message) => session.log(message, { level: "warning" }),
 });
 
 function status() {
-    return `Spoken summaries: ${settings.enabled ? "on" : "off"}; voice: ${settings.voice}; speed: ${settings.speed}x.`;
+    return `Spoken summaries: ${enabled ? "on" : "off"}; voice: ${settings.voice}; speed: ${settings.speed}x.`;
 }
 
 async function voices() {
@@ -49,72 +50,79 @@ function command(name, description, handler) {
     };
 }
 
+async function selectVoice(args) {
+    const available = await voices();
+    if (!args) {
+        if (!session.capabilities.ui?.elicitation) {
+            await session.log(`Available voices:\n${available.join("\n")}\nChoose with /speak voice <name>.`);
+            return;
+        }
+        const result = await session.ui.elicitation({
+            message: "Choose a voice for spoken summaries.",
+            requestedSchema: {
+                type: "object",
+                properties: {
+                    voice: {
+                        type: "string",
+                        title: "Voice",
+                        enum: available,
+                        default: settings.voice,
+                    },
+                },
+                required: ["voice"],
+            },
+        });
+        if (result.action !== "accept") return;
+        args = result.content?.voice;
+    }
+    const voice = typeof args === "string"
+        ? available.find((name) => name.toLowerCase() === args.toLowerCase())
+        : undefined;
+    if (!voice) throw new Error("Unknown voice. Use /speak voices to see available voices.");
+    settings = await updateSettings({ voice });
+    await session.log(status());
+}
+
+const usage = "Usage: /speak [on|off|status|test|stop|voice [name]|voices|speed [number]|help]";
+
 const session = await joinSession({
     interaction: {
         commands: [
-            command("speak", "Spoken summaries: on, off, status, test, or stop", async (args) => {
-                if (!args || args === "status") {
+            command("speak", "Spoken summaries: on, off, voice, voices, speed, status, test, stop, or help", async (args) => {
+                const [action, ...values] = args.split(/\s+/);
+                const value = values.join(" ");
+                if (!action || action === "status") {
                     await session.log(status());
-                } else if (args === "on" || args === "off") {
-                    settings = await updateSettings({ enabled: args === "on" });
+                } else if (action === "on" || action === "off") {
+                    enabled = action === "on";
                     speech.reset();
                     await session.log(status());
-                } else if (args === "stop") {
+                } else if (action === "stop") {
                     await speech.dispose();
                     await session.log("Stopped speech playback.");
-                } else if (args === "test") {
-                    if (!settings.enabled) throw new Error("Spoken summaries are off. Use /speak on first.");
+                } else if (action === "test") {
+                    if (!enabled) throw new Error("Spoken summaries are off. Use /speak on first.");
                     speech.reset();
                     speech.queue(`Hello, I am ${settings.voice}. Your spoken summaries are ready.`);
                     await speech.stop();
+                } else if (action === "speed") {
+                    if (value) {
+                        const speed = Number(value.replace(/x$/i, ""));
+                        if (!Number.isFinite(speed) || speed <= 0) {
+                            throw new Error("Usage: /speak speed <positive number>, e.g. /speak speed 1.4");
+                        }
+                        settings = await updateSettings({ speed });
+                    }
+                    await session.log(status());
+                } else if (action === "voice") {
+                    await selectVoice(value);
+                } else if (action === "voices") {
+                    await session.log(`Available voices: ${(await voices()).join(", ")}`);
+                } else if (action === "help") {
+                    await session.log(usage);
                 } else {
-                    throw new Error("Usage: /speak [on|off|status|test|stop]");
+                    throw new Error(usage);
                 }
-            }),
-            command("voice-speed", "Show or set speech playback speed, e.g. /voice-speed 1.4", async (args) => {
-                if (args) {
-                    const speed = Number(args.replace(/x$/i, ""));
-                    if (!Number.isFinite(speed) || speed <= 0) {
-                        throw new Error("Usage: /voice-speed <positive number>, e.g. /voice-speed 1.4");
-                    }
-                    settings = await updateSettings({ speed });
-                }
-                await session.log(status());
-            }),
-            command("voice-name", "Choose a speech voice from a list, or supply a name", async (args) => {
-                const available = await voices();
-                if (!args) {
-                    if (!session.capabilities.ui?.elicitation) {
-                        await session.log(`Available voices:\n${available.join("\n")}\nChoose with /voice-name <name>.`);
-                        return;
-                    }
-                    const result = await session.ui.elicitation({
-                        message: "Choose a voice for spoken summaries.",
-                        requestedSchema: {
-                            type: "object",
-                            properties: {
-                                voice: {
-                                    type: "string",
-                                    title: "Voice",
-                                    enum: available,
-                                    default: settings.voice,
-                                },
-                            },
-                            required: ["voice"],
-                        },
-                    });
-                    if (result.action !== "accept") return;
-                    args = result.content?.voice;
-                }
-                const voice = typeof args === "string"
-                    ? available.find((name) => name.toLowerCase() === args.toLowerCase())
-                    : undefined;
-                if (!voice) throw new Error("Unknown voice. Use /voice-list to see available voices.");
-                settings = await updateSettings({ voice });
-                await session.log(status());
-            }),
-            command("voice-list", "List available Phonon voices", async () => {
-                await session.log(`Available voices: ${(await voices()).join(", ")}`);
             }),
         ],
     },
@@ -147,7 +155,7 @@ const session = await joinSession({
                 speech.reset();
                 settings = await readSettings();
                 return {
-                    additionalContext: settings.enabled
+                    additionalContext: enabled
                         ? guidance
                         : "Spoken summaries are muted. Do not call queue_spoken_summary.",
                 };

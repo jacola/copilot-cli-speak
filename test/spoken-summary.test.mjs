@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { setImmediate } from "node:timers/promises";
 import test from "node:test";
-import { createSpokenSummary } from "../speech.mjs";
+import { createSpokenSummary as createSpeechController } from "../speech.mjs";
 import { DEFAULT_SETTINGS, readSettings, updateSettings } from "../settings.mjs";
 
 const wav = Buffer.from("RIFF0000WAVEfake-audio");
 const response = () => new Response(wav);
+
+function createSpokenSummary(options = {}) {
+    return createSpeechController({
+        getSettings: () => ({ ...DEFAULT_SETTINGS, enabled: true }),
+        ...options,
+    });
+}
 
 async function eventually(predicate) {
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -172,6 +179,14 @@ test("muting skips synthesis and does not request a summary", () => {
     assert.equal(speech.stop(), undefined);
 });
 
+test("speech starts muted without requesting synthesis or another agent turn", () => {
+    const speech = createSpeechController({
+        request: () => assert.fail("Default-off speech must not synthesize"),
+    });
+    assert.match(speech.queue("Not enabled."), /muted/);
+    assert.equal(speech.stop(), undefined);
+});
+
 test("selected voice and playback speed reach the speech pipeline", async () => {
     let playedSpeed;
     const speech = createSpokenSummary({
@@ -193,10 +208,13 @@ test("voice settings persist, merge updates, and reject invalid speeds", async (
     const path = pathToFileURL(join(directory, "settings.json"));
     try {
         assert.deepEqual(await readSettings(path), DEFAULT_SETTINGS);
-        await updateSettings({ speed: 1.4 }, path);
-        await updateSettings({ enabled: false }, path);
+        await writeFile(path, '{"enabled":true,"voice":"Zoey","speed":1.2}');
         assert.deepEqual(await readSettings(path), {
-            enabled: false, voice: "Freya", speed: 1.4,
+            voice: "Zoey", speed: 1.2,
+        });
+        await updateSettings({ speed: 1.4 }, path);
+        assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
+            voice: "Zoey", speed: 1.4,
         });
         for (const speed of [0, -1, NaN, Infinity, "1.4"]) {
             await assert.rejects(updateSettings({ speed }, path), /positive number/);

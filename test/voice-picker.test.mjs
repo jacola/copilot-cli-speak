@@ -11,6 +11,8 @@ async function setup({ capable = true, result = { action: "accept", content: { v
     let settings = { enabled: true, voice: "Freya", speed: 1.4 };
     const updates = [];
     const logs = [];
+    const speechCalls = [];
+    let speechOptions;
     const session = {
         capabilities: { ui: { elicitation: capable } },
         ui: {
@@ -34,7 +36,17 @@ async function setup({ capable = true, result = { action: "accept", content: { v
         "@microsoft/copilot-sdk/extension": {
             joinSession: async (value) => { options = value; return session; },
         },
-        "./speech.mjs": { createSpokenSummary: () => ({}) },
+        "./speech.mjs": {
+            createSpokenSummary: (value) => {
+                speechOptions = value;
+                return {
+                    reset: () => { speechCalls.push("reset"); },
+                    queue: () => { speechCalls.push("queue"); },
+                    stop: () => { speechCalls.push("stop"); },
+                    dispose: () => { speechCalls.push("dispose"); },
+                };
+            },
+        },
         "./settings.mjs": {
             readSettings: async () => ({ ...settings }),
             updateSettings: async (changes) => {
@@ -52,11 +64,16 @@ async function setup({ capable = true, result = { action: "accept", content: { v
         }, { context });
     });
     await module.evaluate();
+    const invokeSpeak = (args = "") => options.interaction.commands
+        .find((command) => command.name === "speak").handler({ args });
     return {
-        invoke: (args = "") => options.interaction.commands
-            .find((command) => command.name === "voice-name").handler({ args }),
+        invoke: (args = "") => invokeSpeak(`voice ${args}`),
+        invokeSpeak,
+        submitPrompt: () => options.hooks.handlers.onUserPromptSubmitted(),
+        speechSettings: () => speechOptions.getSettings(),
         updates,
         logs,
+        speechCalls,
         form: () => form,
     };
 }
@@ -101,4 +118,60 @@ test("invalid or missing accepted selections do not overwrite the voice", async 
         assert.equal(picker.updates.length, 0);
         assert.match(picker.logs[0], /Unknown voice/);
     }
+});
+
+test("new sessions start muted even when legacy saved settings enable speech", async () => {
+    const first = await setup();
+    assert.equal(first.speechSettings().enabled, false);
+    assert.match((await first.submitPrompt()).additionalContext, /muted/);
+    await first.invokeSpeak("on");
+    const second = await setup();
+    assert.equal(second.speechSettings().enabled, false);
+    assert.equal(first.speechSettings().enabled, true);
+    assert.equal(first.updates.length, 0);
+});
+
+test("session opt-in survives prompts and preference updates without being persisted", async () => {
+    const session = await setup();
+    await session.invokeSpeak("on");
+    await session.invokeSpeak("speed 1.2");
+    await session.invoke("Zoey");
+    assert.match((await session.submitPrompt()).additionalContext, /Before your final answer/);
+    assert.equal(session.speechSettings().enabled, true);
+    assert.equal(session.speechSettings().voice, "Zoey");
+    assert.equal(session.speechSettings().speed, 1.2);
+    assert.ok(session.updates.every((changes) => !("enabled" in changes)));
+    await session.invokeSpeak("off");
+    assert.equal(session.speechSettings().enabled, false);
+    assert.match((await session.submitPrompt()).additionalContext, /muted/);
+});
+
+test("speak subcommands list voices, change speed, show help and reject invalid values while muted", async () => {
+    const session = await setup();
+    await session.invokeSpeak("voices");
+    assert.match(session.logs.at(-1), /Freya, Zoey, Captain Silas Blackwater/);
+    await session.invokeSpeak("speed 1.5x");
+    assert.equal(session.speechSettings().speed, 1.5);
+    assert.equal(session.speechSettings().enabled, false);
+    await session.invokeSpeak("speed");
+    assert.match(session.logs.at(-1), /off; voice: Freya; speed: 1.5x/);
+    await session.invokeSpeak("speed invalid");
+    assert.match(session.logs.at(-1), /Usage: \/speak speed/);
+    assert.equal(session.speechSettings().speed, 1.5);
+    await session.invokeSpeak("help");
+    assert.match(session.logs.at(-1), /voice \[name\].*speed \[number\]/);
+    await session.invokeSpeak("unknown");
+    assert.match(session.logs.at(-1), /Usage: \/speak/);
+});
+
+test("speak test requires opt-in and stop does not mute the session", async () => {
+    const session = await setup();
+    await session.invokeSpeak("test");
+    assert.match(session.logs.at(-1), /Use \/speak on first/);
+    assert.deepEqual(session.speechCalls, []);
+    await session.invokeSpeak("on");
+    await session.invokeSpeak("test");
+    await session.invokeSpeak("stop");
+    assert.deepEqual(session.speechCalls, ["reset", "reset", "queue", "stop", "dispose"]);
+    assert.equal(session.speechSettings().enabled, true);
 });

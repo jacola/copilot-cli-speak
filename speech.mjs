@@ -9,7 +9,7 @@ const run = promisify(execFile);
 
 export function createSpokenSummary({
     request = globalThis.fetch,
-    getSettings = () => DEFAULT_SETTINGS,
+    getSettings = () => ({ ...DEFAULT_SETTINGS, enabled: false }),
     play = (path, signal, speed) =>
         run("/usr/bin/afplay", ["--rate", String(speed), "--rQuality", "1", path], {
             signal,

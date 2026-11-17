@@ -1,4 +1,4 @@
-# Copilot Spoken Summary
+# Copilot CLI Speak
 
 A personal GitHub Copilot CLI extension that speaks a short summary when the
 agent finishes a turn, using local Ollama Phonon.
@@ -18,13 +18,15 @@ The spoken summary can differ from the visible final answer.
 
 ## Install
 
-From this repository:
-
 ```sh
+git clone https://github.com/jacola/copilot-cli-speak.git
+cd copilot-cli-speak
 ollama pull phonon
 npm run install:extension
 copilot --experimental
 ```
+
+In Copilot, run `/speak on` when you want spoken summaries for that session.
 
 Ollama must be running; start it using your normal Ollama service or
 `ollama serve`. No `npm install` is needed: there are no package dependencies,
@@ -44,26 +46,33 @@ The installed extension is a copy, not a live link to the checkout.
 | Command | Action |
 | --- | --- |
 | `/speak` or `/speak status` | Show current settings |
-| `/speak on` | Enable spoken summaries |
-| `/speak off` | Mute spoken summaries |
-| `/speak stop` | Stop speech without changing the saved mute setting |
+| `/speak on` | Enable spoken summaries for this session |
+| `/speak off` | Mute spoken summaries for this session |
+| `/speak stop` | Stop speech without changing this session's mute setting |
 | `/speak test` | Play a sample using the current voice and speed |
-| `/voice-name` | Open the voice picker |
-| `/voice-name Freya` | Select a voice directly |
-| `/voice-list` | List the installed Phonon voices |
-| `/voice-speed` | Show current settings |
-| `/voice-speed 1.4` | Set playback speed; `1.4x` also works |
+| `/speak voice` | Open the voice picker |
+| `/speak voice Freya` | Select a voice directly |
+| `/speak voices` | List the installed Phonon voices |
+| `/speak speed` | Show current settings |
+| `/speak speed 1.4` | Set playback speed; `1.4x` also works |
+| `/speak help` | Show available subcommands |
 
 `/voice` remains reserved for Copilot's own dictation feature. Hosts without
 interactive form support display the voice names and direct-selection syntax
 instead of opening a picker.
+The former `/voice-name`, `/voice-list`, and `/voice-speed` commands have been
+replaced by the `/speak` subcommands above.
 
 ## Behavior and settings
 
-The defaults are Freya, 1.4x playback, and speech enabled. Settings are saved in
-`settings.json` beside the installed extension, shared across projects. Each
-session refreshes settings when a new user prompt is submitted or a voice
-command is run.
+Speech starts off in every new session. Use `/speak on` to enable it for that
+session only; `/speak off` mutes it again. The on/off state is not saved or
+shared with other sessions. Reloading the extension also resets speech to off.
+
+The default voice and playback speed are Freya and 1.4x. These preferences are
+saved in `settings.json` beside the installed extension, shared across projects.
+Each session refreshes them when a new user prompt is submitted or a voice
+command is run. Old saved `enabled` values are ignored.
 
 The extension asks Copilot to queue one or two plain-text sentences, at most
 50 words, before the final answer. It asks for outcomes, blockers, or questions

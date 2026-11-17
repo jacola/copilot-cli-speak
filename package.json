@@ -1,5 +1,5 @@
 {
-  "name": "copilot-spoken-summary",
+  "name": "copilot-cli-speak",
   "version": "0.1.0",
   "private": true,
   "description": "Speech-friendly Copilot CLI summaries using local Ollama Phonon.",
